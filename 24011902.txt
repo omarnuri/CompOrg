@@ -1,0 +1,132 @@
+BLM2022 Bilgisayar Organizasyonu - Odev 3
+Ogrenci: Omar Nuriyev - 24011902
+
+============================================================
+ALGORITMA OZETI
+============================================================
+
+Islemci: Tek Cevrim RISC-V (Odev2 Soru1 / Q2 - SRAI destekli)
+Kullanilan komutlar: addi, lw, and, andi, add, srai, beq, sw, jal
+
+Algoritma:
+1. Maske 0x55555555 (=0101_0101...0101_0101) ile ARRAY[i] AND'lenir
+   -> Cift pozisyonlu bitler (0,2,4,...,30) korunur, tek pozisyonlular sifirlanir
+2. Sonuc 0 olana kadar veya 16 kez:
+   - En dusuk bit (LSB) alinir ve sayaca eklenir
+   - Sayi 2 bit saga kaydirililr (srai, bit31=0 garantili oldugu icin logik kaydirma gibi calisir)
+3. COUNT[i] degeri veri bellegine yazilir
+
+Bellek duzeni (dmem):
+  Adres 0x000 - 0x04C: ARRAY[0..19]  (20 kelime x 4 bayt)
+  Adres 0x050         : MASK = 0x55555555
+  Adres 0x054 - 0x0A0: COUNT[0..19]  (20 kelime x 4 bayt)
+
+============================================================
+TEK ELEMAN ICIN CEVRIM SAYISI ANALIZI
+============================================================
+
+Her eleman icin ic dongu SABIT 16 kez calisir (ic dongu sayaci = 16..0).
+Bu nedenle her eleman icin cevrim sayisi AYNIDIR:
+
+Dis dongu overhead (eleman basina):
+  beq  (dis kontrol)   :  1 cevrim
+  add, add (i*4)       :  2 cevrim
+  add  (ARRAY adresi)  :  1 cevrim
+  lw   (ARRAY[i] yükle):  1 cevrim
+  and  (maske uygula)  :  1 cevrim
+  addi (count=0)       :  1 cevrim
+  addi (ctr=16)        :  1 cevrim
+                          --------
+  Toplam (önce ic)     :  8 cevrim
+
+Ic dongu (16 tekrar + 1 cikis):
+  16 x (beq + andi + add + srai + addi + jal) = 16 x 6 = 96 cevrim
+  + 1 adet son beq (cikis)                              =  1 cevrim
+                                                          ---------
+  Toplam ic dongu                                        = 97 cevrim
+
+Sonra (eleman basina):
+  add  (&COUNT[i])     :  1 cevrim
+  sw   (COUNT[i] yaz)  :  1 cevrim
+  addi (i++)           :  1 cevrim
+  jal  (dis donguye)   :  1 cevrim
+                          --------
+  Toplam (sonra)       :  4 cevrim
+
+  HER ELEMAN ICIN TOPLAM : 8 + 97 + 4 = 109 CEVRIM
+
+============================================================
+TUM DIZI ICIN CEVRIM SAYISI
+============================================================
+
+Baslangilc (init):
+  addi a0, x0, 0    :  1
+  addi a1, x0, 84   :  1
+  lw   t6, 80(x0)   :  1
+  addi s0, x0, 0    :  1
+  addi t4, x0, 20   :  1
+                       --
+  Toplam init       :  5 cevrim
+
+20 eleman isleme   : 20 x 109 = 2180 cevrim
+Son beq (done)     :   1 cevrim (i=20, cikis)
+Halt (jal done)    :   1 cevrim
+
+TOPLAM = 5 + 2180 + 1 + 1 = 2187 cevrim
+Son COUNT yazimi (COUNT[19]) = cevrim 2182
+
+============================================================
+HER ELEMAN ICIN SIMULASYON CEVRIM SAYISI (son COUNT yazimi)
+============================================================
+
+Sira  ARRAY        COUNT  Cevrim (COUNT yazimi)
+ 1    0x00000000     0    cevrim 111
+ 2    0x00000001     1    cevrim 220
+ 3    0x00000200     0    cevrim 329
+ 4    0x00400000     1    cevrim 438
+ 5    0x80000000     0    cevrim 547
+ 6    0x51C06460     7    cevrim 656
+ 7    0xDEC287D9     9    cevrim 765
+ 8    0x6C896594     8    cevrim 874
+ 9    0x99999999     8    cevrim 983
+10    0xFFFFFFFF    16    cevrim 1092
+11    0x7FFFFFFF    16    cevrim 1201
+12    0xFFFFFFFE    15    cevrim 1310
+13    0xC7B52169     9    cevrim 1419
+14    0x8CEFF731    10    cevrim 1528
+15    0xA550921E     7    cevrim 1637
+16    0x0DB01F33     8    cevrim 1746
+17    0x24BB7B48     7    cevrim 1855
+18    0x98513914     8    cevrim 1964
+19    0xCD76ED30    10    cevrim 2073
+20    0xC0000003     2    cevrim 2182
+
+Not: Her eleman icin cevrim sayisi sabittir (109 cevrim),
+     cunku ic dongu her zaman sabit 16 kez calisir.
+
+============================================================
+OZEL DEGERLER ICIN CEVRIM SURESI (GTKWave videosu icin)
+============================================================
+
+0xFFFFFFFF  -> ARRAY[10] -> COUNT=16 -> cevrim 1092 (COUNT yazimi)
+              & 0x55555555 = 0x55555555 -> 16 adet 1 bit
+              ic dongu: 16 iterasyon (her biri bit=1)
+
+0x80000000  -> ARRAY[5]  -> COUNT=0  -> cevrim 547  (COUNT yazimi)
+              & 0x55555555 = 0x00000000 -> 0 adet 1 bit
+              ic dongu: 16 iterasyon (hepsi bit=0, sayac 0 kalir)
+
+0xC7B52169  -> ARRAY[13] -> COUNT=9  -> cevrim 1419 (COUNT yazimi)
+              & 0x55555555 = 0x45110141 -> 9 adet 1 bit
+              ic dongu: 16 iterasyon
+
+Not: Tum degerler icin ic dongu sabittir (16 iterasyon).
+     Cevrim suresi farki sadece eleman sirasindan kaynaklanir.
+
+============================================================
+VIDEO LINKI
+============================================================
+
+[Video linki buraya eklenecek]
+
+============================================================
