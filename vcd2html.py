@@ -253,9 +253,10 @@ const MAX_T = {round(max_t/1000,1)};
 
 let viewStart = 0;
 let viewEnd   = MAX_T;
-let dragging  = false;
-let dragX0    = 0;
-let dragV0    = 0;
+let dragging    = false;
+let dragX0      = 0;
+let dragV0Start = 0;
+let dragV0Span  = 0;
 
 const C = document.getElementById('wave');
 const ctx = C.getContext('2d');
@@ -456,23 +457,28 @@ function draw() {{
   ctx.fillText(`View: ${{viewStart.toFixed(0)}}–${{viewEnd.toFixed(0)}} ns  (span: ${{vspan}} ns)`, C.width - 280, 12);
 }}
 
-// Mouse interactions
+// Mouse drag
 C.addEventListener('mousemove', e => {{
   const rect = C.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const t = viewStart + (x / C.width) * (viewEnd - viewStart);
   document.getElementById('cur_t').textContent = t.toFixed(1);
   if (dragging) {{
-    const dt = (dragX0 - x) / C.width * (viewEnd - viewStart);
-    viewStart = Math.max(0, dragV0 + dt);
-    viewEnd   = Math.min(MAX_T, viewStart + (viewEnd - viewStart));
+    const dt = (dragX0 - x) / C.width * dragV0Span;
+    viewStart = Math.max(0, dragV0Start + dt);
+    viewEnd   = viewStart + dragV0Span;
+    if (viewEnd > MAX_T) {{ viewEnd = MAX_T; viewStart = Math.max(0, MAX_T - dragV0Span); }}
     draw();
   }}
 }});
 C.addEventListener('mousedown', e => {{
-  dragging = true; dragX0 = e.clientX - C.getBoundingClientRect().left; dragV0 = viewStart;
+  dragging = true;
+  dragX0      = e.clientX - C.getBoundingClientRect().left;
+  dragV0Start = viewStart;
+  dragV0Span  = viewEnd - viewStart;
 }});
-C.addEventListener('mouseup', () => dragging = false);
+C.addEventListener('mouseup',   () => dragging = false);
+C.addEventListener('mouseleave',() => dragging = false);
 C.addEventListener('wheel', e => {{
   e.preventDefault();
   zoom(e.deltaY > 0 ? 1.2 : 0.8);
@@ -480,16 +486,48 @@ C.addEventListener('wheel', e => {{
 
 // Touch
 let lastTouchDist = null;
-C.addEventListener('touchmove', e => {{
+let touchStartX   = null;
+let touchV0Start  = 0;
+let touchV0Span   = 0;
+
+C.addEventListener('touchstart', e => {{
+  if (e.touches.length === 1) {{
+    touchStartX  = e.touches[0].clientX;
+    touchV0Start = viewStart;
+    touchV0Span  = viewEnd - viewStart;
+  }}
   if (e.touches.length === 2) {{
-    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX,
-                         e.touches[0].clientY - e.touches[1].clientY);
+    lastTouchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY);
+  }}
+  e.preventDefault();
+}}, {{passive:false}});
+
+C.addEventListener('touchmove', e => {{
+  if (e.touches.length === 1 && touchStartX !== null) {{
+    // 1 палец — скролл
+    const dx = touchStartX - e.touches[0].clientX;
+    const dt = dx / C.width * touchV0Span;
+    viewStart = Math.max(0, touchV0Start + dt);
+    viewEnd   = viewStart + touchV0Span;
+    if (viewEnd > MAX_T) {{ viewEnd = MAX_T; viewStart = Math.max(0, MAX_T - touchV0Span); }}
+    draw();
+  }} else if (e.touches.length === 2) {{
+    // 2 пальца — zoom
+    const d = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY);
     if (lastTouchDist) zoom(lastTouchDist / d);
     lastTouchDist = d;
   }}
   e.preventDefault();
 }}, {{passive:false}});
-C.addEventListener('touchend', () => lastTouchDist = null);
+
+C.addEventListener('touchend', () => {{
+  lastTouchDist = null;
+  touchStartX   = null;
+}});
 
 window.addEventListener('resize', resize);
 resize();
