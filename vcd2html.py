@@ -205,12 +205,13 @@ HTML = f"""<!DOCTYPE html>
 <div class="panel">
   <h3>Dalga Formu</h3>
   <div class="ctrl">
-    <button onclick="zoom(2)">Zoom +</button>
-    <button onclick="zoom(0.5)">Zoom −</button>
-    <button onclick="zoomFit()">Fit</button>
-    <button onclick="scroll(-200)">◀</button>
-    <button onclick="scroll(200)">▶</button>
-    <span style="font-size:11px;color:#888">Cursor: <span id="cur_t">—</span> ns</span>
+    <button onclick="zoom(0.5)">🔍＋</button>
+    <button onclick="zoom(2)">🔍－</button>
+    <button onclick="zoomFit()">Tam görünüm</button>
+    <button onclick="viewStart=0;viewEnd=3000;draw()">İlk 3µs</button>
+    <button onclick="scroll(-200)">◀◀</button>
+    <button onclick="scroll(200)">▶▶</button>
+    <span style="font-size:11px;color:#888">📍 <span id="cur_t">—</span> ns</span>
   </div>
   <canvas id="wave" width="900" height="280"></canvas>
   <div class="info">
@@ -252,7 +253,7 @@ const SPECIALS = {specials};
 const MAX_T = {round(max_t/1000,1)};
 
 let viewStart = 0;
-let viewEnd   = MAX_T;
+let viewEnd   = 3000;  // начальный вид: первые 3000 ns (видно 2-3 элемента)
 let dragging    = false;
 let dragX0      = 0;
 let dragV0Start = 0;
@@ -275,6 +276,13 @@ function zoom(factor) {{
 }}
 
 function zoomFit() {{ viewStart=0; viewEnd=MAX_T; draw(); }}
+
+// Show span around a center time
+function zoomTo(center, spanNs) {{
+  viewStart = Math.max(0, center - spanNs/2);
+  viewEnd   = Math.min(MAX_T, center + spanNs/2);
+  draw();
+}}
 
 function scroll(px) {{
   const dt = (viewEnd - viewStart) * px / C.width;
@@ -317,29 +325,42 @@ function drawSignal(tl, y, h, label, color, isBus) {{
   ctx.clip();
 
   if (!isBus) {{
-    // Digital: 0 or 1
+    // Digital: 0 or 1 — use min 2px pulse width so narrow pulses stay visible
     ctx.strokeStyle = color;
-    ctx.beginPath();
-    let first = true;
+    const MIN_PX = 2;
+    // Build segments: [x_start, x_end, value]
+    const segs = [];
     let pv = null, px = SIG_X;
     for (const [t, v] of tl) {{
       const x = tToX(t);
-      if (x > W) break;
-      if (pv !== null && x >= SIG_X) {{
-        const ly = pv ? y+2 : y+h-2;
-        if (first) {{ ctx.moveTo(Math.max(SIG_X,px), ly); first=false; }}
-        else ctx.lineTo(Math.max(SIG_X,px), ly);
-        ctx.lineTo(Math.max(SIG_X,x), ly);
-        const ny = v ? y+2 : y+h-2;
-        ctx.lineTo(Math.max(SIG_X,x), ny);
-      }}
+      if (pv !== null) segs.push([Math.max(SIG_X, px), Math.max(SIG_X, x), pv]);
       pv = v; px = x;
     }}
-    if (pv !== null) {{
-      const ly = pv ? y+2 : y+h-2;
-      ctx.lineTo(W, ly);
+    if (pv !== null) segs.push([Math.max(SIG_X, px), W, pv]);
+
+    ctx.beginPath();
+    let first = true;
+    for (const [x0, x1, v] of segs) {{
+      if (x1 < SIG_X || x0 > W) continue;
+      const ex0 = Math.max(SIG_X, x0);
+      const ex1 = Math.min(W, Math.max(x0 + (v ? MIN_PX : 0), x1)); // min width only for HIGH
+      const ly  = v ? y+2 : y+h-2;
+      if (first) {{ ctx.moveTo(ex0, ly); first=false; }}
+      else       {{ ctx.lineTo(ex0, ly); }}
+      ctx.lineTo(ex1, ly);
+      // transition down
+      if (v) ctx.lineTo(ex1, y+h-2);
     }}
     ctx.stroke();
+
+    // Overlay: draw solid rectangles for HIGH pulses so they're always visible
+    ctx.fillStyle = color + '99';
+    for (const [x0, x1, v] of segs) {{
+      if (!v || x1 < SIG_X || x0 > W) continue;
+      const ex0 = Math.max(SIG_X, x0);
+      const ex1 = Math.min(W, Math.max(x0 + MIN_PX, x1));
+      ctx.fillRect(ex0, y+2, ex1 - ex0, h-4);
+    }}
   }} else {{
     // Bus: draw trapezoid transitions with hex values
     ctx.strokeStyle = color;
